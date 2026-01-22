@@ -5,20 +5,20 @@ on:
   workflow_dispatch:
 
 jobs:
-构建-openwrt:
-运行于: ubuntu-20.04# 改用20.04解决GCC兼容性问题
-步骤:
-      - 名称: 检出代码
-用途: aactions/checkout@v4
+  build-openwrt:
+    runs-on: ubuntu-20.04  # 改用20.04解决GCC兼容性问题
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
 
       - name: 启用ccache缓存（提速）
-使用: hendrikmuhs/ccache-action@v1.2
-:
-${{运行器.os}}-openwrt-rk3128
-          restore-keys: ${{运行器.os}}-openwrt-rk3128
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ${{ runner.os }}-openwrt-rk3128
+          restore-keys: ${{ runner.os }}-openwrt-rk3128
 
       - name: 安装编译依赖（Ubuntu 20.04适配版）
-运行: sudo apt-get update && sudo apt-get -y install build-essential asciidoc binutils bzip2 gawk gettext git libncurses5-dev libz-dev patch python3 unzip zlib1g-dev lib32gcc1 libc6-dev-i386 subversion flex uglifyjs git-core gcc-multilib p7zip p7zip-full msmtp libssl-dev texinfo libglib2.0-dev xmlto qemu-utils upx libelf-dev autoconf automake libtool autopoint device-tree-compiler g++-multilib antlr3 gperf wget curl swig rsync ccache
+        run: sudo apt-get update && sudo apt-get -y install build-essential asciidoc binutils bzip2 gawk gettext git libncurses5-dev libz-dev patch python3 unzip zlib1g-dev lib32gcc1 libc6-dev-i386 subversion flex uglifyjs git-core gcc-multilib p7zip p7zip-full msmtp libssl-dev texinfo libglib2.0-dev xmlto qemu-utils upx libelf-dev autoconf automake libtool autopoint device-tree-compiler g++-multilib antlr3 gperf wget curl swig rsync ccache
 
       - name: 克隆适配RK3128的OpenWrt源码（32位Rockchip专用）
         run: git clone -b master --depth=1 https://github.com/coolsnowwolf/lede.git openwrt  # 选择对RK3128支持更好的Lean源码
@@ -27,19 +27,19 @@ ${{运行器.os}}-openwrt-rk3128
         run: cd openwrt && rm -f .config .config.old && make clean
 
       - name: 复制RK3128 32位专属配置文件
-: c.config openwrt/.config && cd openwrt && make menuconfig -o .config# 强制生效配置
+        run: cp .config openwrt/.config && cd openwrt && make menuconfig -o .config  # 强制生效配置
 
       - name: 更新并安装feeds（确保打印服务依赖完整）
-运行: cd openwrt && ./scripts/feeds update -a && ./scripts/feeds install -a
+        run: cd openwrt && ./scripts/feeds update -a && ./scripts/feeds install -a
 
       - name: 预下载所有编译依赖（避免编译中下载超时）
-运行: cd openwrt && make download -j$(nproc)
+        run: cd openwrt && make download -j$(nproc)
 
       - name: 编译OpenWrt固件（强制32位，出错时输出详细日志）
-运行: cd openwrt && export CCACHE_DIR=/github/home/.ccache && export ARCH=arm && export CROSS_COMPILE=arm-openwrt-linux-muslgnueabi- && make -j$(nproc) || make -j1 V=s
+        run: cd openwrt && export CCACHE_DIR=/github/home/.ccache && export ARCH=arm && export CROSS_COMPILE=arm-openwrt-linux-muslgnueabi- && make -j$(nproc) || make -j1 V=s
 
-      - 名称: 上传编译好的固件
-用途: actions/upload-artifact@v4
-带有:
-名称: RK3128-OpenWrt-打印机服务器
-路径: openwrt/bin/targets/rockchip/armv7/*.img.gz
+      - name: 上传编译好的固件
+        uses: actions/upload-artifact@v4
+        with:
+          name: RK3128-OpenWrt-Printer-Server
+          path: openwrt/bin/targets/rockchip/armv7/*.img.gz

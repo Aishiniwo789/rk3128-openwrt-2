@@ -1,6 +1,6 @@
 name: RK3128 OpenWrt 打印服务器编译
 on:
-  workflow_dispatch:  # 仅保留手动触发，避免自动编译冲突
+  workflow_dispatch:
 
 jobs:
   build:
@@ -9,29 +9,26 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v4
 
-      - name: 安装完整编译依赖（含32位交叉编译链）
-        run: sudo apt-get update && sudo apt-get -y install build-essential asciidoc binutils bzip2 gawk gettext git libncurses5-dev libz-dev patch python3 unzip zlib1g-dev lib32gcc-s1 libc6-dev-i386 subversion flex uglifyjs git-core gcc-multilib g++-multilib p7zip p7zip-full msmtp libssl-dev texinfo libglib2.0-dev xmlto qemu-utils upx libelf-dev autoconf automake libtool autopoint device-tree-compiler antlr3 gperf wget curl swig rsync ccache
+      - name: 安装armv7编译专属依赖（补充缺失的交叉编译工具）
+        run: sudo apt-get update && sudo apt-get -y install build-essential asciidoc binutils bzip2 gawk gettext git libncurses5-dev libz-dev patch python3 unzip zlib1g-dev lib32gcc-s1 libc6-dev-i386 subversion flex uglifyjs git-core gcc-multilib p7zip p7zip-full msmtp libssl-dev texinfo libglib2.0-dev xmlto qemu-utils upx libelf-dev autoconf automake libtool autopoint device-tree-compiler g++-multilib antlr3 gperf wget curl swig rsync ccache gcc-arm-linux-gnueabihf lib32z1-dev
 
-      - name: 克隆适配RK3128的OpenWrt源码（lean版，32位支持更好）
-        run: git clone -b openwrt-21.02 --depth=1 https://github.com/coolsnowwolf/lede.git openwrt
+      - name: 克隆RK3128专属OpenWrt源码（32位armv7适配）
+        run: git clone -b master --depth=1 https://github.com/hanwckf/rockchip-openwrt.git openwrt
 
-      - name: 强制清理旧配置（核心修复：消除arm64残留）
-        run: cd openwrt && rm -rf .config build_dir/target-* staging_dir/target-* tmp/ && make clean && make distclean
+      - name: 强制复制RK3128配置文件（先覆盖再生成defconfig）
+        run: cp .config openwrt/.config && cd openwrt && make defconfig ARCH=arm CROSS_COMPILE=arm-linux-gnueabihf-
 
-      - name: 复制RK3128专属配置文件
-        run: cp .config openwrt/.config && cd openwrt && chmod 755 ./scripts/feeds && ./scripts/feeds update -a && ./scripts/feeds install -a
+      - name: 更新feeds并安装依赖
+        run: cd openwrt && ./scripts/feeds update -a && ./scripts/feeds install -a
 
-      - name: 生成defconfig并锁定32位架构
-        run: cd openwrt && make defconfig && echo "CONFIG_TARGET_rockchip_armv8=n" >> .config && echo "CONFIG_ARCH_64BIT=n" >> .config
-
-      - name: 预下载所有依赖（避免编译中下载超时）
+      - name: 预下载所有编译依赖（避免超时）
         run: cd openwrt && make download -j$(nproc)
 
-      - name: 编译固件（强制32位编译链）
-        run: cd openwrt && export CCACHE_DIR=/github/home/.ccache && export ARCH=arm && export CROSS_COMPILE=arm-openwrt-linux-muslgnueabi- && make -j$(nproc) || make -j1 V=s
+      - name: 编译RK3128固件（强制arm架构）
+        run: cd openwrt && export CCACHE_DIR=/github/home/.ccache && make -j$(nproc) ARCH=arm CROSS_COMPILE=arm-linux-gnueabihf- || make -j1 V=s ARCH=arm CROSS_COMPILE=arm-linux-gnueabihf-
 
       - name: 上传固件
         uses: actions/upload-artifact@v4
         with:
-          name: RK3128-Printer-Server
+          name: RK3128-Printer-Server-Firmware
           path: openwrt/bin/targets/rockchip/armv7/*.img.gz

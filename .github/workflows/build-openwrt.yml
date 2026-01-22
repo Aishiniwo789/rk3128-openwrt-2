@@ -1,0 +1,42 @@
+name: RK3128 OpenWrt 打印服务器编译
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:  # 手动触发编译
+
+jobs:
+  build-openwrt:
+    runs-on: ubuntu-22.04  # 更稳定的版本，兼容RK3128编译
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 启用ccache缓存（大幅缩短二次编译时间）
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ${{ runner.os }}-openwrt-rk3128
+          restore-keys: ${{ runner.os }}-openwrt-rk3128
+
+      - name: 安装编译依赖（RK3128必备完整依赖）
+        run: sudo apt-get update && sudo apt-get -y install build-essential asciidoc binutils bzip2 gawk gettext git libncurses5-dev libz-dev patch python3 unzip zlib1g-dev lib32gcc-s1 libc6-dev-i386 subversion flex uglifyjs git-core gcc-multilib p7zip p7zip-full msmtp libssl-dev texinfo libglib2.0-dev xmlto qemu-utils upx libelf-dev autoconf automake libtool autopoint device-tree-compiler g++-multilib antlr3 gperf wget curl swig rsync ccache
+
+      - name: 克隆适配RK3128的OpenWrt源码（21.02稳定版）
+        run: git clone -b openwrt-21.02 --depth=1 https://github.com/openwrt/openwrt.git openwrt
+
+      - name: 复制RK3128专属配置文件
+        run: cp .config openwrt/.config
+
+      - name: 更新并安装feeds（确保打印服务依赖完整）
+        run: cd openwrt && ./scripts/feeds update -a && ./scripts/feeds install -a
+
+      - name: 预下载所有编译依赖（避免编译中下载超时）
+        run: cd openwrt && make defconfig && make download -j$(nproc)
+
+      - name: 编译OpenWrt固件（RK3128适配，出错时输出详细日志）
+        run: cd openwrt && export CCACHE_DIR=/github/home/.ccache && make -j$(nproc) || make -j1 V=s
+
+      - name: 上传编译好的固件（方便下载）
+        uses: actions/upload-artifact@v4
+        with:
+          name: RK3128-OpenWrt-Printer-Server
+          path: openwrt/bin/targets/rockchip/armv7/*.img.gz

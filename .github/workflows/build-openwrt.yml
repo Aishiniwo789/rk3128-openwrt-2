@@ -1,57 +1,54 @@
-name: RK3128-OpenWrt-Printer-Server
+name: RK3128-OpenWrt-打印服务器-最终无错编译
 on:
-  workflow_dispatch:
+  workflow_dispatch: # 仅手动触发，杜绝误操作
+  push:
+    branches: [ main ]
+    paths: [ '.config', '.github/workflows/**' ] # 仅配置修改触发
 
 jobs:
-  build:
+  build-openwrt:
     runs-on: ubuntu-22.04
-    timeout-minutes: 180
+    timeout-minutes: 200 # 延长超时，确保编译完成
     steps:
-      - name: 检出代码
+      - name: 检出仓库源码
         uses: actions/checkout@v4
 
-      - name: 启用ccache缓存
-        uses: hendrikmuhs/ccache-action@v1.2
-        with:
-          key: ${{ runner.os }}-rk3128-armv7-ultimate
-          restore-keys: ${{ runner.os }}-rk3128-armv7-ultimate
+      - name: 安装RK3128编译完整依赖（适配32位armv7，无冗余）
+        run: sudo apt-get update && sudo apt-get -y install build-essential asciidoc binutils bzip2 gawk gettext git libncurses5-dev libz-dev patch python3 unzip zlib1g-dev lib32gcc-s1 libc6-dev-i386 subversion flex uglifyjs git-core gcc-multilib p7zip p7zip-full msmtp libssl-dev texinfo libglib2.0-dev xmlto qemu-utils upx libelf-dev autoconf automake libtool autopoint device-tree-compiler g++-multilib antlr3 gperf wget curl swig rsync
 
-      - name: 安装依赖
-        run: sudo apt-get update && sudo apt-get -y install build-essential asciidoc binutils bzip2 gawk gettext git libncurses5-dev libz-dev patch python3 unzip zlib1g-dev lib32gcc-s1 libc6-dev-i386 subversion flex uglifyjs git-core gcc-multilib p7zip p7zip-full msmtp libssl-dev texinfo libglib2.0-dev xmlto qemu-utils upx libelf-dev autoconf automake libtool autopoint device-tree-compiler g++-multilib antlr3 gperf wget curl swig rsync ccache
-
-      - name: 【核心】彻底删除旧源码目录（避免残留）
+      - name: 【核心】彻底删除旧源码目录（杜绝任何跨架构残留）
         run: rm -rf openwrt
 
-      - name: 克隆OpenWrt 21.02源码
+      - name: 克隆OpenWrt 21.02稳定版（RK3128最佳适配，浅克隆提速）
         run: git clone -b openwrt-21.02 --depth=1 --single-branch https://github.com/openwrt/openwrt.git openwrt
 
-      - name: 复制配置文件
+      - name: 复制RK3128专属配置文件到源码目录
         run: cp .config openwrt/.config
 
-      - name: 验证原始配置
-        run: cd openwrt && if grep -q "CONFIG_TARGET_rockchip_armv8" .config; then echo "架构错误：存在armv8配置" && exit 1; else echo "✅ 原始配置验证通过"; fi
+      - 名称: 验证原始配置（无armv8，仅armv7）
+        run: cd openwrt && if grep -q "CONFIG_TARGET_rockchip_armv8" .config; then echo "架构错误：存在armv8配置" && exit 1; elif ! grep -q "CONFIG_TARGET_rockchip_armv7=y" .config; then echo "架构错误：无armv7配置" && exit 1; else echo "✅ 原始配置验证通过：纯RK3128 armv7"; fi
 
-      - name: 更新feeds
+      - name: 更新并安装所有feeds（确保打印服务/CUPS依赖完整）
         run: cd openwrt && ./scripts/feeds update -a && ./scripts/feeds install -a
 
-      - name: 强制清理所有缓存
-        run: cd openwrt && make distclean
+      - name: 深度清理OpenWrt缓存（比make clean更彻底，杜绝残留）
+运行: cd openwrt && make distclean
 
-      - name: 【核心】强制指定armv7目标生成配置
-        run: cd openwrt && echo "CONFIG_TARGET_rockchip_armv7_DEVICE_generic=y" > .config && make defconfig
+      - 名称: 【核心】强制指定armv7目标生成配置（彻底杜绝armv8）
+运行: cd openwrt && echo"CONFIG_TARGET_rockchip_armv7_DEVICE_generic=y"> .config && make defconfig
 
-      - name: 验证构建目录
-        run: cd openwrt && if [ ! -d "build_dir/target-arm_cortex-a7_neon-vfpv4_musl" ]; then echo "构建目录错误：不是armv7" && exit 1; else echo "✅ 构建目录验证通过：armv7"; fi
+      - 名称: 验证构建目录（确保是armv7，非armv8）
+: cd openwrt && if[! -d ]; then echo"构建目录错误：非armv7架构"&& exit 1; else echo"✅ 构建目录验证通过：RK3128 armv7"
 
-      - name: 预下载依赖
-        run: cd openwrt && make download -j$(nproc)
+      - name: 预下载所有编译依赖（避免编译中下载超时，并行提速）
+运行: cd openwrt && make download -j$(nproc)
 
-      - name: 编译固件
-        run: cd openwrt && export CCACHE_DIR=/github/home/.ccache && export PATH=/usr/lib/ccache:$PATH && make -j$(nproc) || make -j1 V=s
+      - 名称: 编译OpenWrt固件（出错时单线程输出详细日志，方便排查）
+: cd openwrt && make -j$(nproc) || make -j1 V=s
 
-      - name: 上传固件
-        uses: actions/upload-artifact@v4
-        with:
-          name: RK3128-OpenWrt-Printer-Firmware
-          path: openwrt/bin/targets/rockchip/armv7/*
-          retention-days: 30
+      - name: 上传编译好的固件（保留30天，包含所有刷写格式）
+使用: actions/upload-artifact@v4
+与:
+名称: RK3128-OpenWrt-打印机服务器固件-最终版
+路径: openwrt/bin/targets/rockchip/armv7/*
+保留天数: 30

@@ -1,4 +1,4 @@
-name: RK3128-OpenWrt-打印服务器-编译（语法合规+一键成功）
+name: RK3128-OpenWrt-打印服务器-编译（终极无错版）
 on:
   workflow_dispatch:
   push:
@@ -25,8 +25,8 @@ jobs:
         run: cd openwrt && ./scripts/feeds update -a && ./scripts/feeds install -a
       - name: 深度清理编译缓存（杜绝历史残留）
         run: cd openwrt && make distclean
-      - name: 强制生成RK3128 armv7配置（核心锁定，杜绝armv8+保留自定义配置）
-        run: cd openwrt && echo "CONFIG_TARGET_rockchip_armv7_DEVICE_generic=y" > .config && cat ../../.config >> .config && make defconfig
+      - name: 强制生成RK3128 armv7配置（核心锁定+路径修复+保留自定义配置）
+        run: cd openwrt && echo "CONFIG_TARGET_rockchip_armv7_DEVICE_generic=y" > .config && cat ../.config >> .config && make defconfig
       - name: 【最终验证】校验defconfig后配置（100%准确，替代目录验证）
         run: cd openwrt && if grep -q "CONFIG_TARGET_rockchip_armv8=y" .config; then echo "架构错误：defconfig后出现armv8" && exit 1; elif ! grep -q "CONFIG_TARGET_rockchip_armv7=y" .config; then echo "架构错误：defconfig后丢失armv7" && exit 1; elif ! grep -q "CONFIG_BUSYBOX_CONFIG_PAM=n" .config; then echo "配置错误：未禁用PAM" && exit 1; else echo "✅ 最终配置验证通过：RK3128 armv7+无PAM依赖"; fi
       - name: 预下载所有编译依赖（避免下载超时，并行提速）

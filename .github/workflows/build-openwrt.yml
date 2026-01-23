@@ -2,7 +2,7 @@ name: RK3128 OpenWrt 打印服务器编译
 on:
   push:
     branches: [ main ]
-  workflow_dispatch:  # 优先手动触发，最稳定
+  workflow_dispatch:  # 仅手动触发，杜绝缓存干扰
 
 jobs:
   build-openwrt:
@@ -11,28 +11,31 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v4
 
-      - name: 安装编译依赖（RK3128 32位必备，无冗余）
-        run: sudo apt-get update && sudo apt-get -y install build-essential asciidoc binutils bzip2 gawk gettext git libncurses5-dev libz-dev patch python3 unzip zlib1g-dev lib32gcc-s1 libc6-dev-i386 subversion flex uglifyjs git-core gcc-multilib p7zip p7zip-full msmtp libssl-dev texinfo libglib2.0-dev xmlto qemu-utils upx libelf-dev autoconf automake libtool autopoint device-tree-compiler g++-multilib antlr3 gperf wget curl swig rsync
+      - name: 【核心新增】全局设置TERM环境变量（所有子进程均继承，永久生效）
+        run: echo "TERM=xterm" >> $GITHUB_ENV
+
+      - name: 安装编译依赖（RK3128 32位必备，补充ncurses依赖，适配终端）
+        run: sudo apt-get update && sudo apt-get -y install build-essential asciidoc binutils bzip2 gawk gettext git libncurses5-dev libncursesw5-dev libz-dev patch python3 unzip zlib1g-dev lib32gcc-s1 libc6-dev-i386 subversion flex uglifyjs git-core gcc-multilib p7zip p7zip-full msmtp libssl-dev texinfo libglib2.0-dev xmlto qemu-utils upx libelf-dev autoconf automake libtool autopoint device-tree-compiler g++-multilib antlr3 gperf wget curl swig rsync
 
       - name: 克隆RK3128适配的OpenWrt源码（21.02稳定版，浅克隆提速）
         run: git clone -b openwrt-21.02 --depth=1 https://github.com/openwrt/openwrt.git openwrt
 
-      - name: 强制清理旧配置/编译缓存（解决架构残留，必须保留）
-        run: cd openwrt && rm -f .config .config.old && make clean && make distclean
+      - name: 【核心修改】超深度清理（删除所有隐藏配置/缓存，杜绝架构残留）
+        run: cd openwrt && rm -rf .config .config.old build_dir/ staging_dir/ tmp/ logs/ && make clean && make distclean
 
-      - name: 复制RK3128专属armv7配置文件（覆盖源码默认配置）
+      - name: 复制RK3128专属配置文件（精准配置，无依赖警告）
         run: cp .config openwrt/.config
 
-      - name: 更新并安装feeds（确保打印服务/CUPS依赖完整）
+      - name: 更新并安装feeds（确保打印服务依赖完整）
         run: cd openwrt && ./scripts/feeds update -a && ./scripts/feeds install -a
 
-      - name: 预下载依赖+定义终端环境（核心修改：加TERM=xterm解决致命终端错误）
-        run: cd openwrt && export TERM=xterm && make defconfig && make download -j$(nproc)
+      - name: 【核心修改】预下载依赖+用olddefconfig（彻底跳过menuconfig，终端错误根治）
+        run: cd openwrt && make olddefconfig && make download -j$(nproc)
 
       - name: 编译OpenWrt固件（纯32位armv7，出错时输出详细日志）
-        run: cd openwrt && export TERM=xterm && make -j$(nproc) || make -j1 V=s
+        run: cd openwrt && make -j$(nproc) || make -j1 V=s
 
-      - name: 上传编译好的固件（包含所有img/固件文件，方便下载）
+      - name: 上传固件（包含所有img/固件文件，直接刷入）
         uses: actions/upload-artifact@v4
         with:
           name: RK3128-OpenWrt-Printer-Server

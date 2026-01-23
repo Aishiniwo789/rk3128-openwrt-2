@@ -1,9 +1,9 @@
-名称: RK3128-OpenWrt-打印服务器-编译（语法合规+一键成功）
+name: RK3128-OpenWrt-打印服务器-编译（语法合规+一键成功）
 on:
   workflow_dispatch:
   push:
-    branches: [main]
-    paths: ['.config', '.github/workflows/**']
+    branches: [ main ]
+    paths: [ '.config', '.github/workflows/**' ]
 jobs:
   build-openwrt:
     runs-on: ubuntu-22.04
@@ -11,25 +11,25 @@ jobs:
     steps:
       - name: 检出仓库源码
         uses: actions/checkout@v4
-      - 名称: 安装RK3128编译完整依赖（32位armv7专属）
-: sudo apt-get update && sudo apt-get -y install build-essential asciidoc binutils bzip2 gawk gettext git libncurses5-dev libz-dev patch python3 unzip zlib1g-dev lib32gcc-s1 libc6-dev-i386 subversion flex uglifyjs git-core gcc-multilib p7zip p7zip-full msmtp libssl-dev texinfo libglib2.0-dev xmlto qemu-utils upx libelf-dev autoconf automake libtool autopoint device-tree-compiler g++-multilib antlr3 gperf wget curl swig rsync
+      - name: 安装RK3128编译完整依赖（32位armv7专属）
+        run: sudo apt-get update && sudo apt-get -y install build-essential asciidoc binutils bzip2 gawk gettext git libncurses5-dev libz-dev patch python3 unzip zlib1g-dev lib32gcc-s1 libc6-dev-i386 subversion flex uglifyjs git-core gcc-multilib p7zip p7zip-full msmtp libssl-dev texinfo libglib2.0-dev xmlto qemu-utils upx libelf-dev autoconf automake libtool autopoint device-tree-compiler g++-multilib antlr3 gperf wget curl swig rsync
       - name: 彻底删除旧源码目录（杜绝跨架构残留）
-运行: rm -rf openwrt
-      - 名称: 克隆OpenWrt 21.02稳定版（RK3128最佳适配，浅克隆提速）
-运行: git clone -b openwrt-21.02 --depth=1 --single-branch https://github.com/openwrt/openwrt.git openwrt
-      - 名称: 将RK3128专属配置文件复制到源码目录
-运行: cp .config openwrt/.config
-      - 名称: 验证原始配置（无armv8，仅armv7）
+        run: rm -rf openwrt
+      - name: 克隆OpenWrt 21.02稳定版（RK3128最佳适配，浅克隆提速）
+        run: git clone -b openwrt-21.02 --depth=1 --single-branch https://github.com/openwrt/openwrt.git openwrt
+      - name: 复制RK3128专属配置文件到源码目录
+        run: cp .config openwrt/.config
+      - name: 验证原始配置（无armv8，仅armv7）
         run: cd openwrt && if grep -q "CONFIG_TARGET_rockchip_armv8" .config; then echo "架构错误：存在armv8配置" && exit 1; elif ! grep -q "CONFIG_TARGET_rockchip_armv7=y" .config; then echo "架构错误：无armv7配置" && exit 1; else echo "✅ 原始配置验证通过：纯RK3128 armv7"; fi
-      - 名称: 更新并安装所有feed（确保CUPS/打印服务依赖完整）
+      - name: 更新并安装所有feeds（确保CUPS/打印服务依赖完整）
         run: cd openwrt && ./scripts/feeds update -a && ./scripts/feeds install -a
       - name: 深度清理编译缓存（杜绝历史残留）
-运行: cd openwrt && make distclean
-      - name: 强制生成RK3128 armv7配置（核心锁定，杜绝armv8）
+        run: cd openwrt && make distclean
+      - name: 强制生成RK3128 armv7配置（核心锁定，杜绝armv8+保留自定义配置）
         run: cd openwrt && echo "CONFIG_TARGET_rockchip_armv7_DEVICE_generic=y" > .config && cat ../../.config >> .config && make defconfig
-      - 名称: 【最终验证】校验defconfig后配置（替代错误的目录验证，100%准确）
+      - name: 【最终验证】校验defconfig后配置（100%准确，替代目录验证）
         run: cd openwrt && if grep -q "CONFIG_TARGET_rockchip_armv8=y" .config; then echo "架构错误：defconfig后出现armv8" && exit 1; elif ! grep -q "CONFIG_TARGET_rockchip_armv7=y" .config; then echo "架构错误：defconfig后丢失armv7" && exit 1; elif ! grep -q "CONFIG_BUSYBOX_CONFIG_PAM=n" .config; then echo "配置错误：未禁用PAM" && exit 1; else echo "✅ 最终配置验证通过：RK3128 armv7+无PAM依赖"; fi
-      - name: 预下载所有编译依赖（避免编译中下载超时，并行提速）
+      - name: 预下载所有编译依赖（避免下载超时，并行提速）
         run: cd openwrt && make download -j$(nproc)
       - name: 编译OpenWrt固件（出错时单线程输出详细日志）
         run: cd openwrt && make -j$(nproc) || make -j1 V=s
@@ -37,5 +37,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: RK3128-OpenWrt-Printer-Server-Firmware
-: openwrt/bin/targets/rockchip/armv7/*
-保留天数: 30
+          path: openwrt/bin/targets/rockchip/armv7/*
+          retention-days: 30

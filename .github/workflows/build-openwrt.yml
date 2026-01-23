@@ -6,7 +6,7 @@ on:
 
 jobs:
   build-openwrt:
-    runs-on: ubuntu-20.04  # 改用20.04解决GCC兼容性问题
+    runs-on: ubuntu-22.04  # 改用20.04解决GCC兼容性问题
     steps:
       - name: 检出代码
         uses: actions/checkout@v4

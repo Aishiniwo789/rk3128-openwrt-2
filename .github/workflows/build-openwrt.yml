@@ -2,22 +2,25 @@ name: RK3128 OpenWrt 打印服务器编译
 on:
   push:
     branches: [ main ]
-  workflow_dispatch:  # 手动触发编译（优先用这个）
+  workflow_dispatch:  # 优先手动触发，避免自动触发的缓存干扰
 
 jobs:
   build-openwrt:
-    runs-on: ubuntu-22.04  # 稳定版，适配RK3128编译
+    runs-on: ubuntu-22.04  # 稳定版，适配RK3128 32位编译
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
 
-      - name: 安装编译依赖（RK3128必备完整依赖，无冗余）
-        run: sudo apt-get update && sudo apt-get -y install build-essential asciidoc binutils bzip2 gawk gettext git libncurses5-dev libz-dev patch python3 unzip zlib1g-dev lib32gcc-s1 libc6-dev-i386 subversion flex uglifyjs git-core gcc-multilib p7zip p7zip-full msmtp libssl-dev texinfo libglib2.0-dev xmlto qemu-utils upx libelf-dev autoconf automake libtool autopoint device-tree-compiler g++-multilib antlr3 gperf wget curl swig rsync ccache
+      - name: 安装编译依赖（RK3128 32位必备，无冗余）
+        run: sudo apt-get update && sudo apt-get -y install build-essential asciidoc binutils bzip2 gawk gettext git libncurses5-dev libz-dev patch python3 unzip zlib1g-dev lib32gcc-s1 libc6-dev-i386 subversion flex uglifyjs git-core gcc-multilib p7zip p7zip-full msmtp libssl-dev texinfo libglib2.0-dev xmlto qemu-utils upx libelf-dev autoconf automake libtool autopoint device-tree-compiler g++-multilib antlr3 gperf wget curl swig rsync
 
       - name: 克隆RK3128适配的OpenWrt源码（21.02稳定版，浅克隆提速）
         run: git clone -b openwrt-21.02 --depth=1 https://github.com/openwrt/openwrt.git openwrt
 
-      - name: 复制RK3128专属配置文件到源码目录
+      - name: 【新增核心步骤】强制清理旧配置/编译缓存（解决架构残留冲突）
+        run: cd openwrt && rm -f .config .config.old && make clean && make distclean
+
+      - name: 复制RK3128专属armv7配置文件（覆盖源码默认配置）
         run: cp .config openwrt/.config
 
       - name: 更新并安装feeds（确保打印服务/CUPS依赖完整）
@@ -26,10 +29,10 @@ jobs:
       - name: 预下载所有编译依赖（避免编译中下载超时，最大化提速）
         run: cd openwrt && make defconfig && make download -j$(nproc)
 
-      - name: 编译OpenWrt固件（核心：移除ccache，出错时输出详细日志）
+      - name: 编译OpenWrt固件（纯32位armv7，出错时输出详细日志）
         run: cd openwrt && make -j$(nproc) || make -j1 V=s
 
-      - name: 上传编译好的固件（路径优化：包含所有img/img.gz，方便下载）
+      - name: 上传编译好的固件（包含所有img/固件文件，避免漏下）
         uses: actions/upload-artifact@v4
         with:
           name: RK3128-OpenWrt-Printer-Server

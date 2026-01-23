@@ -25,30 +25,30 @@ jobs:
       - name: 复制RK3128专属配置文件到源码目录
         run: cp .config openwrt/.config
 
-      - 名称: 验证原始配置（无armv8，仅armv7）
+      - name: 验证原始配置（无armv8，仅armv7）
         run: cd openwrt && if grep -q "CONFIG_TARGET_rockchip_armv8" .config; then echo "架构错误：存在armv8配置" && exit 1; elif ! grep -q "CONFIG_TARGET_rockchip_armv7=y" .config; then echo "架构错误：无armv7配置" && exit 1; else echo "✅ 原始配置验证通过：纯RK3128 armv7"; fi
 
       - name: 更新并安装所有feeds（确保打印服务/CUPS依赖完整）
         run: cd openwrt && ./scripts/feeds update -a && ./scripts/feeds install -a
 
       - name: 深度清理OpenWrt缓存（比make clean更彻底，杜绝残留）
-运行: cd openwrt && make distclean
+        run: cd openwrt && make distclean
 
-      - 名称: 【核心】强制指定armv7目标生成配置（彻底杜绝armv8）
-运行: cd openwrt && echo"CONFIG_TARGET_rockchip_armv7_DEVICE_generic=y"> .config && make defconfig
+      - name: 【核心】强制指定armv7目标生成配置（彻底杜绝armv8）
+        run: cd openwrt && echo "CONFIG_TARGET_rockchip_armv7_DEVICE_generic=y" > .config && make defconfig
 
-      - 名称: 验证构建目录（确保是armv7，非armv8）
-: cd openwrt && if[! -d ]; then echo"构建目录错误：非armv7架构"&& exit 1; else echo"✅ 构建目录验证通过：RK3128 armv7"
+      - name: 验证构建目录（确保是armv7，非armv8）
+        run: cd openwrt && if [ ! -d "build_dir/target-arm_cortex-a7_neon-vfpv4_musl" ]; then echo "构建目录错误：非armv7架构" && exit 1; else echo "✅ 构建目录验证通过：RK3128 armv7"; fi
 
       - name: 预下载所有编译依赖（避免编译中下载超时，并行提速）
-运行: cd openwrt && make download -j$(nproc)
+        run: cd openwrt && make download -j$(nproc)
 
-      - 名称: 编译OpenWrt固件（出错时单线程输出详细日志，方便排查）
-: cd openwrt && make -j$(nproc) || make -j1 V=s
+      - name: 编译OpenWrt固件（出错时单线程输出详细日志，方便排查）
+        run: cd openwrt && make -j$(nproc) || make -j1 V=s
 
       - name: 上传编译好的固件（保留30天，包含所有刷写格式）
-使用: actions/upload-artifact@v4
-与:
-名称: RK3128-OpenWrt-打印机服务器固件-最终版
-路径: openwrt/bin/targets/rockchip/armv7/*
-保留天数: 30
+        uses: actions/upload-artifact@v4
+        with:
+          name: RK3128-OpenWrt-Printer-Server-Firmware-Final
+          path: openwrt/bin/targets/rockchip/armv7/*
+          retention-days: 30

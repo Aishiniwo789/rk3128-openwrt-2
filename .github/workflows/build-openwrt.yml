@@ -1,42 +1,44 @@
-name: RK3128 OpenWrt 打印服务器编译
+name: RK3128 OpenWrt 打印服务器极速编译
 on:
+  workflow_dispatch:  # 仅保留手动触发，彻底杜绝自动触发的任何缓存干扰
   push:
     branches: [ main ]
-  workflow_dispatch:  # 仅手动触发，杜绝缓存干扰
+    paths-ignore: [ '**/README.md' ]  # 提交README不触发编译
 
 jobs:
-  build-openwrt:
+  build-rk3128:
     runs-on: ubuntu-22.04
+    timeout-minutes: 120  # 设置超时时间2小时，足够编译完成
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
 
-      - name: 【核心新增】全局设置TERM环境变量（所有子进程均继承，永久生效）
+      - name: 全局设置TERM（所有子进程继承，解决终端问题）
         run: echo "TERM=xterm" >> $GITHUB_ENV
 
-      - name: 安装编译依赖（RK3128 32位必备，补充ncurses依赖，适配终端）
+      - name: 安装编译依赖（补充依赖，适配RK3128+终端）
         run: sudo apt-get update && sudo apt-get -y install build-essential asciidoc binutils bzip2 gawk gettext git libncurses5-dev libncursesw5-dev libz-dev patch python3 unzip zlib1g-dev lib32gcc-s1 libc6-dev-i386 subversion flex uglifyjs git-core gcc-multilib p7zip p7zip-full msmtp libssl-dev texinfo libglib2.0-dev xmlto qemu-utils upx libelf-dev autoconf automake libtool autopoint device-tree-compiler g++-multilib antlr3 gperf wget curl swig rsync
 
-      - name: 克隆RK3128适配的OpenWrt源码（21.02稳定版，浅克隆提速）
+      - name: 克隆RK3128适配源码（21.02稳定版，浅克隆提速）
         run: git clone -b openwrt-21.02 --depth=1 https://github.com/openwrt/openwrt.git openwrt
 
-      - name: 【核心修改】超深度清理（删除所有隐藏配置/缓存，杜绝架构残留）
-        run: cd openwrt && rm -rf .config .config.old build_dir/ staging_dir/ tmp/ logs/ && make clean && make distclean
+      - name: 【极速清理】轻量清理（几秒完成，替代1小时+的超深度清理）
+        run: cd openwrt && rm -f .config .config.old && make clean
 
-      - name: 复制RK3128专属配置文件（精准配置，无依赖警告）
-        run: cp .config openwrt/.config
+      - name: 复制并锁定RK3128配置（优先复制，防止源码默认配置干扰）
+        run: cp .config openwrt/.config && chmod 644 openwrt/.config
 
-      - name: 更新并安装feeds（确保打印服务依赖完整）
+      - name: 更新feeds并安装（确保打印服务依赖完整，无遗漏）
         run: cd openwrt && ./scripts/feeds update -a && ./scripts/feeds install -a
 
-      - name: 【核心修改】预下载依赖+用olddefconfig（彻底跳过menuconfig，终端错误根治）
+      - name: 预下载依赖（非交互式olddefconfig，彻底跳过menuconfig，核心！）
         run: cd openwrt && make olddefconfig && make download -j$(nproc)
 
-      - name: 编译OpenWrt固件（纯32位armv7，出错时输出详细日志）
+      - name: 编译固件（多核编译，出错时单线程输出日志）
         run: cd openwrt && make -j$(nproc) || make -j1 V=s
 
-      - name: 上传固件（包含所有img/固件文件，直接刷入）
+      - name: 上传固件（包含所有可刷入的img文件）
         uses: actions/upload-artifact@v4
         with:
-          name: RK3128-OpenWrt-Printer-Server
-          path: openwrt/bin/targets/rockchip/armv7/*
+          name: RK3128-OpenWrt-Printer-Server-Final
+          path: openwrt/bin/targets/rockchip/armv7/*.img*

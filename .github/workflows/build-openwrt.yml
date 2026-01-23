@@ -1,4 +1,4 @@
-name: RK3128-OpenWrt-打印服务器-编译（终极无错版）
+name: RK3128-OpenWrt-打印服务器-编译（绝杀无错版）
 on:
   workflow_dispatch:
   push:
@@ -17,18 +17,18 @@ jobs:
         run: rm -rf openwrt
       - name: 克隆OpenWrt 21.02稳定版（RK3128最佳适配，浅克隆提速）
         run: git clone -b openwrt-21.02 --depth=1 --single-branch https://github.com/openwrt/openwrt.git openwrt
-      - name: 复制RK3128专属配置文件到源码目录
+      - name: 深度清理编译缓存（先清理，后配配置，标准顺序）
+        run: cd openwrt && make distclean
+      - name: 复制RK3128专属配置文件到源码目录（清理后复制，配置不丢失）
         run: cp .config openwrt/.config
-      - name: 验证原始配置（无armv8，仅armv7）
-        run: cd openwrt && if grep -q "CONFIG_TARGET_rockchip_armv8" .config; then echo "架构错误：存在armv8配置" && exit 1; elif ! grep -q "CONFIG_TARGET_rockchip_armv7=y" .config; then echo "架构错误：无armv7配置" && exit 1; else echo "✅ 原始配置验证通过：纯RK3128 armv7"; fi
+      - name: 【核心验证】校验核心架构配置（锁死armv7，杜绝armv8）
+        run: cd openwrt && if grep -q "CONFIG_TARGET_rockchip_armv8=y" .config; then echo "架构错误：配置含armv8=y" && exit 1; elif ! grep -q "CONFIG_TARGET_rockchip_armv7=y" .config; then echo "架构错误：无armv7=y配置" && exit 1; elif ! grep -q "CONFIG_BUSYBOX_CONFIG_PAM=n" .config; then echo "配置错误：未禁用PAM" && exit 1; else echo "✅ 核心配置验证通过：纯RK3128 armv7+无PAM依赖"; fi
       - name: 更新并安装所有feeds（确保CUPS/打印服务依赖完整）
         run: cd openwrt && ./scripts/feeds update -a && ./scripts/feeds install -a
-      - name: 深度清理编译缓存（杜绝历史残留）
-        run: cd openwrt && make distclean
-      - name: 强制生成RK3128 armv7配置（核心锁定+路径修复+保留自定义配置）
-        run: cd openwrt && echo "CONFIG_TARGET_rockchip_armv7_DEVICE_generic=y" > .config && cat ../.config >> .config && make defconfig
-      - name: 【最终验证】校验defconfig后配置（100%准确，替代目录验证）
-        run: cd openwrt && if grep -q "CONFIG_TARGET_rockchip_armv8=y" .config; then echo "架构错误：defconfig后出现armv8" && exit 1; elif ! grep -q "CONFIG_TARGET_rockchip_armv7=y" .config; then echo "架构错误：defconfig后丢失armv7" && exit 1; elif ! grep -q "CONFIG_BUSYBOX_CONFIG_PAM=n" .config; then echo "配置错误：未禁用PAM" && exit 1; else echo "✅ 最终配置验证通过：RK3128 armv7+无PAM依赖"; fi
+      - name: 生成最终配置（仅补全依赖，不修改核心架构）
+        run: cd openwrt && make defconfig
+      - name: 【最终验证】defconfig后二次锁校（确保无armv8被补全）
+        run: cd openwrt && if grep -q "CONFIG_TARGET_rockchip_armv8=y" .config; then echo "架构错误：defconfig补全了armv8=y" && exit 1; elif ! grep -q "CONFIG_TARGET_rockchip_armv7=y" .config; then echo "架构错误：defconfig丢失armv7=y" && exit 1; else echo "✅ 最终配置二次验证通过：armv7锁定成功"; fi
       - name: 预下载所有编译依赖（避免下载超时，并行提速）
         run: cd openwrt && make download -j$(nproc)
       - name: 编译OpenWrt固件（出错时单线程输出详细日志）

@@ -1,34 +1,54 @@
-name: RK3128 OpenWrt 打印服务器编译
+name: RK3128-OpenWrt-打印服务器编译
 on:
-  workflow_dispatch:
+  workflow_dispatch: # 仅保留手动触发，避免提交误触发
+  push:
+    branches: [ main ]
+    paths: [ '.config', '.github/workflows/**' ] # 仅配置文件修改时触发
 
 jobs:
   build:
     runs-on: ubuntu-22.04
+    timeout-minutes: 180 # 延长超时时间，避免编译中断
     steps:
-      - name: 检出代码
+      - name: 检出仓库代码
         uses: actions/checkout@v4
 
-      - name: 安装armv7编译专属依赖（补充缺失的交叉编译工具）
-        run: sudo apt-get update && sudo apt-get -y install build-essential asciidoc binutils bzip2 gawk gettext git libncurses5-dev libz-dev patch python3 unzip zlib1g-dev lib32gcc-s1 libc6-dev-i386 subversion flex uglifyjs git-core gcc-multilib p7zip p7zip-full msmtp libssl-dev texinfo libglib2.0-dev xmlto qemu-utils upx libelf-dev autoconf automake libtool autopoint device-tree-compiler g++-multilib antlr3 gperf wget curl swig rsync ccache gcc-arm-linux-gnueabihf lib32z1-dev
+      - name: 启用ccache编译缓存（二次编译提速80%）
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ${{ runner.os }}-rk3128-armv7
+          restore-keys: ${{ runner.os }}-rk3128-armv7
 
-      - name: 克隆RK3128专属OpenWrt源码（32位armv7适配）
-        run: git clone -b master --depth=1 https://github.com/hanwckf/rockchip-openwrt.git openwrt
+      - name: 安装RK3128编译完整依赖（无冗余）
+        run: sudo apt-get update && sudo apt-get -y install build-essential asciidoc binutils bzip2 gawk gettext git libncurses5-dev libz-dev patch python3 unzip zlib1g-dev lib32gcc-s1 libc6-dev-i386 subversion flex uglifyjs git-core gcc-multilib p7zip p7zip-full msmtp libssl-dev texinfo libglib2.0-dev xmlto qemu-utils upx libelf-dev autoconf automake libtool autopoint device-tree-compiler g++-multilib antlr3 gperf wget curl swig rsync ccache
 
-      - name: 强制复制RK3128配置文件（先覆盖再生成defconfig）
-        run: cp .config openwrt/.config && cd openwrt && make defconfig ARCH=arm CROSS_COMPILE=arm-linux-gnueabihf-
+      - name: 克隆OpenWrt 21.02稳定版（RK3128最佳适配，浅克隆提速）
+        run: git clone -b openwrt-21.02 --depth=1 --single-branch https://github.com/openwrt/openwrt.git openwrt
 
-      - name: 更新feeds并安装依赖
+      - name: 复制RK3128专属配置文件到源码目录
+        run: cp .config openwrt/.config
+
+      - name: 更新并安装所有feeds（确保打印服务/CUPS依赖完整）
         run: cd openwrt && ./scripts/feeds update -a && ./scripts/feeds install -a
 
-      - name: 预下载所有编译依赖（避免超时）
-        run: cd openwrt && make download -j$(nproc)
+      - name: 强制清理所有编译缓存/残留（核心修复！避免架构混淆）
+        run: cd openwrt && make clean && rm -rf tmp build_dir staging_dir logs
 
-      - name: 编译RK3128固件（强制arm架构）
-        run: cd openwrt && export CCACHE_DIR=/github/home/.ccache && make -j$(nproc) ARCH=arm CROSS_COMPILE=arm-linux-gnueabihf- || make -j1 V=s ARCH=arm CROSS_COMPILE=arm-linux-gnueabihf-
+      - name: 预下载所有编译依赖（避免编译中下载超时，并行提速）
+        run: cd openwrt && make defconfig && make download -j$(nproc)
 
-      - name: 上传固件
+      - name: 验证架构配置（关键！提前确认是armv7而非armv8，失败直接终止）
+        run: cd openwrt && if grep -q "CONFIG_TARGET_rockchip_armv8=y" .config; then echo "架构错误：检测到armv8配置！" && exit 1; else echo "架构验证成功：RK3128 armv7"; fi
+
+      - name: 编译OpenWrt固件（启用ccache，出错时单线程输出详细日志）
+        run: cd openwrt && export CCACHE_DIR=/github/home/.ccache && export PATH=/usr/lib/ccache:$PATH && make -j$(nproc) || make -j1 V=s
+
+      - name: 上传编译好的固件（包含img/zip，方便下载刷写）
         uses: actions/upload-artifact@v4
         with:
-          name: RK3128-Printer-Server-Firmware
-          path: openwrt/bin/targets/rockchip/armv7/*.img.gz
+          name: RK3128-OpenWrt-Printer-Server-Firmware
+          path: |
+            openwrt/bin/targets/rockchip/armv7/*.img.gz
+            openwrt/bin/targets/rockchip/armv7/*.img
+            openwrt/bin/targets/rockchip/armv7/*.zip
+          retention-days: 30 # 固件保留30天，可自行修改

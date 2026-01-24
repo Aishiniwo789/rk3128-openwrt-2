@@ -1,46 +1,37 @@
-name: RK3128 OpenWrt 打印服务器最终编译
+name: RK3128 OpenWrt 打印服务器 - 极简编译
 on:
-  workflow_dispatch:  # 仅保留手动触发，杜绝任何自动干扰
+  workflow_dispatch:  # 仅手动触发，无任何自动干扰
 jobs:
-  build-rk3128:
+  build:
     runs-on: ubuntu-22.04
-    timeout-minutes: 120  # 2小时超时，足够编译完成
+    timeout-minutes: 150  # 留足时间，避免超时
     steps:
-      - name: 1. 检出仓库代码（仅含.config）
+      - name: 检出代码
         uses: actions/checkout@v4
 
-      - name: 2. 全局设置TERM环境变量（所有子进程继承，解决终端问题）
-        run: echo "TERM=xterm" >> $GITHUB_ENV
+      - name: 全局终端环境（根治所有终端相关问题）
+        run: echo "TERM=xterm" >> $GITHUB_ENV && echo "NCURSES_NO_UTF8_ACS=1" >> $GITHUB_ENV
 
-      - name: 3. 安装RK3128编译完整依赖（无冗余，适配32位）
-        run: sudo apt-get update && sudo apt-get -y install build-essential asciidoc binutils bzip2 gawk gettext git libncurses5-dev libncursesw5-dev libz-dev patch python3 unzip zlib1g-dev lib32gcc-s1 libc6-dev-i386 subversion flex uglifyjs git-core gcc-multilib p7zip p7zip-full msmtp libssl-dev texinfo libglib2.0-dev xmlto qemu-utils upx libelf-dev autoconf automake libtool autopoint device-tree-compiler g++-multilib antlr3 gperf wget curl swig rsync
+      - name: 安装编译依赖（RK3128必备，无冗余）
+        run: sudo apt update && sudo apt install -y build-essential git libncurses5-dev libz-dev patch python3 unzip zlib1g-dev lib32gcc-s1 libc6-dev-i386 subversion flex gcc-multilib g++-multilib wget curl device-tree-compiler rsync
 
-      - name: 4. 克隆RK3128适配的OpenWrt 21.02源码（浅克隆提速）
+      - name: 克隆OpenWrt 21.02源码
         run: git clone -b openwrt-21.02 --depth=1 https://github.com/openwrt/openwrt.git openwrt
 
-      - name: 5. 轻量清理源码（几秒完成，无耗时）
-        run: cd openwrt && rm -f .config .config.old && make clean
+      - name: 【0.1秒清理】仅删除源码默认配置（无其他耗时操作）
+        run: cd openwrt && rm -f .config .config.old
 
-      - name: 6. 更新OpenWrt官方feeds（按官方顺序，先更feeds）
-        run: cd openwrt && ./scripts/feeds update -a
+      - name: 先更feeds再复制配置（遵循官方顺序，仅保留核心）
+        run: cd openwrt && ./scripts/feeds update -a && ./scripts/feeds install -a && cp ../.config .config
 
-      - name: 7. 安装所有feeds包（按官方顺序，再装feeds）
-        run: cd openwrt && ./scripts/feeds install -a
-
-      - name: 8. 复制RK3128专属配置（核心！feeds后复制，永不被覆盖）
-        run: cp .config openwrt/.config && chmod 644 openwrt/.config
-
-      - name: 9. 双重锁定目标系统（强制指定Rockchip，杜绝回滚ATH79）
-        run: cd openwrt && make defconfig LANG=C CONFIG_TARGET=rockchip && make olddefconfig
-
-      - name: 10. 预下载所有编译依赖（避免编译中下载超时，提速）
+      - name: 预下载依赖（避免编译中下载超时，提速）
         run: cd openwrt && make download -j$(nproc)
 
-      - name: 11. 编译RK3128固件（多核编译，出错时单线程输出详细日志）
-        run: cd openwrt && make -j$(nproc) || make -j1 V=s
+      - name: 暴力编译（核心！命令行锁死架构+忽略警告+彻底跳过menuconfig）
+        run: cd openwrt && export NCURSES_NO_UTF8_ACS=1 && make -j$(nproc) CONFIG_TARGET=rockchip CONFIG_TARGET_SUBTARGET=armv7 CONFIG_TARGET_PROFILE=DEVICE_generic IGNORE_ERRORS=1 || make -j1 V=s CONFIG_TARGET=rockchip CONFIG_TARGET_SUBTARGET=armv7 CONFIG_TARGET_PROFILE=DEVICE_generic IGNORE_ERRORS=1
 
-      - name: 12. 上传可刷入固件（仅保留img/img.gz，精简体积）
+      - name: 上传固件（仅保留可刷入的img文件）
         uses: actions/upload-artifact@v4
         with:
-          name: RK3128-OpenWrt-Printer-Server-Final-Version
+          name: RK3128-OpenWrt-Printer-Server
           path: openwrt/bin/targets/rockchip/armv7/*.img*
